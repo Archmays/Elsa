@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Elsa 冰雪魔法模拟器 v3.7 (Effects Restored)</title>
+    <title>Elsa 冰雪魔法模拟器 v3.8 (Mobile UI Fix)</title>
     <!-- 核心库 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
@@ -47,7 +47,7 @@
             transform: scaleX(-1);
         }
 
-        /* UI Layer */
+        /* UI Layer - 默认桌面样式 */
         #ui-layer {
             position: absolute;
             top: 20px;
@@ -188,19 +188,71 @@
             margin-top: 5px;
         }
 
-        /* 移动端适配 */
+        /* --- 移动端深度适配 (iPhone/Android) --- */
         @media (max-width: 600px) {
             #ui-layer {
                 width: auto;
                 left: 10px;
                 right: 10px;
                 top: 10px;
-                padding: 15px;
-                max-height: 80vh;
+                padding: 10px 12px; /* 减小内边距 */
+                border-radius: 12px;
+                background: rgba(10, 10, 15, 0.7); /* 更透明一点 */
+                max-width: none;
             }
-            h1 { font-size: 1.2rem; }
-            .instruction { font-size: 0.8rem; margin-bottom: 5px; }
-            #toggle-mode-btn { font-size: 0.9rem; padding: 10px; }
+            
+            h1 { 
+                font-size: 1rem; 
+                margin: 0 0 8px 0;
+                text-align: left; /* 标题左对齐更省空间 */
+            }
+
+            .instruction { 
+                font-size: 0.75rem; /* 缩小字号 */
+                margin-bottom: 3px; 
+                line-height: 1.2;
+                gap: 6px;
+            }
+
+            .icon { 
+                font-size: 0.9rem; 
+                width: 20px; 
+            }
+
+            /* 设置行紧凑化 */
+            .setting-row {
+                margin-top: 8px;
+                padding-top: 6px;
+                font-size: 0.8rem;
+            }
+
+            #max-hands-input {
+                width: 40px;
+                padding: 2px;
+                font-size: 0.9rem;
+            }
+
+            /* 按钮紧凑化 */
+            #toggle-mode-btn { 
+                font-size: 0.85rem; 
+                padding: 6px; 
+                margin-top: 8px;
+                min-height: 36px;
+            }
+
+            #audio-tip {
+                font-size: 0.65rem;
+                margin-top: 3px;
+            }
+            
+            #device-info {
+                font-size: 0.65rem;
+                margin-top: 2px;
+            }
+
+            #game-stats .stat-row {
+                font-size: 0.9rem;
+            }
         }
 
         /* iOS Guide */
@@ -265,24 +317,24 @@
             <div id="gesture-guide">
                 <div class="instruction">
                     <span class="icon">✋</span>
-                    <span><b>五指张开:</b> <span style="color:#a1c4fd">暴雪 (减速+群伤)</span></span>
+                    <span><b>五指张开:</b> <span style="color:#a1c4fd">暴雪</span></span>
                 </div>
                 <div class="instruction">
                     <span class="icon">👆</span>
-                    <span><b>食指指向:</b> <span style="color:#ff8a80">寒冰射线 (高伤)</span></span>
+                    <span><b>食指指向:</b> <span style="color:#ff8a80">射线</span></span>
                 </div>
                 <div class="instruction">
                     <span class="icon">✌️</span>
-                    <span><b>剪刀手:</b> <span style="color:#b388ff">冰锥剑雨 (爆发)</span></span>
+                    <span><b>剪刀手:</b> <span style="color:#b388ff">剑雨</span></span>
                 </div>
                 <div class="instruction">
                     <span class="icon">✊</span>
-                    <span><b>握拳:</b> <span style="color:#69f0ae">寒冰护盾 (弹开)</span></span>
+                    <span><b>握拳:</b> <span style="color:#69f0ae">护盾</span></span>
                 </div>
             </div>
 
             <div class="setting-row">
-                <label for="max-hands-input">最大手掌数:</label>
+                <label for="max-hands-input">识别手掌数:</label>
                 <input type="number" id="max-hands-input" min="1" max="6" value="4" list="hand-options" onchange="updateMaxHands(this.value)">
                 <datalist id="hand-options">
                     <option value="1"></option>
