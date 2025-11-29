@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Elsa 冰雪魔法模拟器 v3.3 (Mobile & iOS Optimized)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #050505;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            /* 解决移动端 100vh 包含地址栏的问题 */
+            height: 100%;
+            position: fixed;
+            width: 100%;
+            color: white;
+            user-select: none;
+            -webkit-user-select: none; /* iOS Safari */
+        }
+
+        #container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* 关键：iOS 必须加 playsinline 否则会自动全屏 */
+        .input_video { 
+            display: none; 
+        }
+
+        .output_canvas {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        /* UI 布局 */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            background: rgba(10, 10, 15, 0.85);
+            padding: 20px;
+            border-radius: 15px;
+            border: 1px solid rgba(100, 200, 255, 0.2);
+            backdrop-filter: blur(8px);
+            box-shadow: 0 0 25px rgba(0, 0, 0, 0.5);
+            width: 280px;
+            max-height: 90vh; /* 防止超长溢出 */
+            overflow-y: auto; /* 允许内部滚动 */
+            pointer-events: none;
+            transition: all 0.3s ease;
+        }
+
+        #ui-layer * {
+            pointer-events: auto;
+        }
+
+        h1 {
+            margin: 0 0 15px 0;
+            font-size: 1.4rem;
+            background: linear-gradient(to right, #a1c4fd, #c2e9fb);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 10px rgba(161, 196, 253, 0.3);
+            text-align: center;
+        }
+
+        .instruction {
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #d0eaff;
+        }
+
+        .icon {
+            font-size: 1.2rem;
+            width: 30px;
+            text-align: center;
+        }
+
+        .setting-row {
+            margin-top: 15px;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.95rem;
+            color: #a1c4fd;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding-top: 10px;
+        }
+
+        #max-hands-input {
+            width: 60px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid #2196f3;
+            color: white;
+            border-radius: 5px;
+            padding: 5px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 1rem; /* 防止 iOS 缩放 */
+        }
+
+        #game-stats {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            display: none;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+
+        #toggle-mode-btn {
+            margin-top: 15px;
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(45deg, #2196f3, #00bcd4);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            /* 增大触摸热区 */
+            min-height: 44px; 
+        }
+
+        #toggle-mode-btn:active {
+            transform: scale(0.98);
+        }
+
+        #toggle-mode-btn.combat {
+            background: linear-gradient(45deg, #ff5252, #d32f2f);
+            box-shadow: 0 4px 6px rgba(200, 50, 50, 0.3);
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.5rem;
+            color: #a1c4fd;
+            text-shadow: 0 0 20px #a1c4fd;
+            z-index: 20;
+            pointer-events: none;
+            text-align: center;
+            width: 80%;
+        }
+
+        .vignette {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            box-shadow: inset 0 0 150px rgba(0, 20, 50, 0.6);
+            z-index: 5;
+        }
+        
+        #audio-tip {
+            font-size: 0.75rem;
+            color: #888;
+            text-align: center;
+            margin-top: 5px;
+        }
+
+        /* --- 移动端响应式适配 --- */
+        @media (max-width: 600px) {
+            #ui-layer {
+                width: auto;
+                left: 10px;
+                right: 10px;
+                top: 10px;
+                padding: 15px;
+            }
+            
+            h1 { font-size: 1.2rem; }
+            .instruction { font-size: 0.8rem; margin-bottom: 5px; }
+            .icon { font-size: 1rem; width: 25px; }
+            #toggle-mode-btn { font-size: 0.9rem; padding: 10px; }
+            
+            /* 移动端输入框优化 */
+            #max-hands-input { width: 50px; }
+        }
+
+        /* --- iOS 引导弹窗 --- */
+        #ios-guide-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        #ios-guide-content {
+            background: #1a1a2e;
+            border: 1px solid #4a90e2;
+            padding: 25px;
+            border-radius: 12px;
+            text-align: center;
+            max-width: 320px;
+            color: white;
+        }
+        .ios-icon { font-size: 3rem; margin-bottom: 15px; display: block; }
+        .ios-btn {
+            background: #4a90e2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 20px;
+            margin-top: 15px;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="container">
+        <!-- 关键：添加 playsinline 属性，防止iOS自动全屏 -->
+        <video class="input_video" playsinline webkit-playsinline></video>
+        <canvas class="output_canvas"></canvas>
+        <div class="vignette"></div>
+
+        <div id="loading">正在加载魔法模型...<br><span style="font-size:0.8rem; opacity:0.7">首次加载可能需要几十秒</span></div>
+
+        <!-- iOS 引导弹窗 -->
+        <div id="ios-guide-modal">
+            <div id="ios-guide-content">
+                <span class="ios-icon">🧭</span>
+                <h3>建议使用 Safari 打开</h3>
+                <p style="font-size: 0.9rem; color: #ccc; line-height: 1.5;">
+                    检测到您正在使用 iOS 设备，但未在 Safari 浏览器中运行。<br><br>
+                    为了确保摄像头权限和性能正常，请点击右上角菜单，选择 <b>“在 Safari 中打开”</b>。
+                </p>
+                <button class="ios-btn" onclick="document.getElementById('ios-guide-modal').style.display='none'">我就要在这里用</button>
+            </div>
+        </div>
+
+        <div id="ui-layer">
+            <h1>❄️ Elsa 魔法模拟器</h1>
+            
+            <div id="gesture-guide">
+                <div class="instruction">
+                    <span class="icon">✋</span>
+                    <span><b>五指张开:</b> <span style="color:#a1c4fd">暴雪 (减速+群伤)</span></span>
+                </div>
+                <div class="instruction">
+                    <span class="icon">👆</span>
+                    <span><b>食指指向:</b> <span style="color:#ff8a80">寒冰射线 (高伤)</span></span>
+                </div>
+                <div class="instruction">
+                    <span class="icon">✌️</span>
+                    <span><b>剪刀手:</b> <span style="color:#b388ff">冰锥剑雨 (爆发)</span></span>
+                </div>
+                <div class="instruction">
+                    <span class="icon">✊</span>
+                    <span><b>握拳:</b> <span style="color:#69f0ae">寒冰护盾 (弹开)</span></span>
+                </div>
+            </div>
+
+            <div class="setting-row">
+                <label for="max-hands-input">最大手掌识别数:</label>
+                <input type="number" id="max-hands-input" min="1" max="6" value="4" list="hand-options" onchange="updateMaxHands(this.value)">
+                <datalist id="hand-options">
+                    <option value="1"></option>
+                    <option value="2"></option>
+                    <option value="4"></option>
+                    <option value="6"></option>
+                </datalist>
+            </div>
+
+            <button id="toggle-mode-btn" onclick="toggleGameMode()">⚔️ 进入战斗模式</button>
+            <div id="audio-tip">点击按钮 (或轻触屏幕) 开启音效</div>
+
+            <div id="game-stats">
+                <div class="stat-row">
+                    <span>得分:</span>
+                    <span id="score" style="color: #ffeb3b">0</span>
+                </div>
+                <div style="font-size: 0.8rem; color: #ffab91; text-align: center; margin-top: 5px;">
+                    ⚠️ 警告：熔岩军团入侵中！
+                    <br>支持多人同时游玩！
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const videoElement = document.getElementsByClassName('input_video')[0];
+        const canvasElement = document.getElementsByClassName('output_canvas')[0];
+        const canvasCtx = canvasElement.getContext('2d');
+        const loadingElement = document.getElementById('loading');
+        const scoreElement = document.getElementById('score');
+        const gameStatsElement = document.getElementById('game-stats');
+        const toggleBtn = document.getElementById('toggle-mode-btn');
+
+        let isGameMode = false;
+        let score = 0;
+        let canvasWidth = window.innerWidth;
+        let canvasHeight = window.innerHeight;
+        let frameCount = 0;
+
+        // --- 设备检测与 iOS 处理 ---
+        function checkIOSAndBrowser() {
+            const ua = navigator.userAgent;
+            // 检测 iOS 设备 (iPad, iPhone, iPod) 或者 iPadOS (MacIntel + Touch)
+            const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            
+            // 检测是否为原生 Safari (排除 Chrome/CriOS, Firefox/FxiOS 等)
+            // Chrome on iOS 包含 "CriOS", Safari 包含 "Version/x.x Safari"
+            const isSafari = /Version\/[\d\.]+.*Safari/.test(ua) && !/CriOS|FxiOS|OPiOS|Mercurio/.test(ua);
+            
+            if (isIOS && !isSafari) {
+                // 如果是 iOS 但不是 Safari，显示引导弹窗
+                document.getElementById('ios-guide-modal').style.display = 'flex';
+            }
+        }
+        
+        // 页面加载时执行检测
+        checkIOSAndBrowser();
+
+        // --- 音效管理器 ---
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+        
+        // 音频解锁逻辑 (针对 iOS 和 Chrome 自动播放策略)
+        function unlockAudio() {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume().then(() => {
+                    console.log('AudioContext resumed successfully');
+                });
+            }
+        }
+        // 绑定多种交互事件以确保解锁
+        document.body.addEventListener('touchstart', unlockAudio, {once:true});
+        document.body.addEventListener('click', unlockAudio, {once:true});
+
+        const SoundFX = {
+            playTone: (freq, type, duration, vol = 0.1) => {
+                if(audioCtx.state === 'suspended') unlockAudio(); 
+                // 安全检查
+                if(audioCtx.state === 'closed') return;
+                
+                try {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + duration);
+                } catch(e) { console.warn("Audio error", e); }
+            },
+            shoot: () => {
+                if(audioCtx.state === 'suspended') return;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.15);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.15);
+            },
+            hit: () => { SoundFX.playTone(150, 'square', 0.1, 0.15); },
+            freeze: () => { SoundFX.playTone(1200, 'sine', 0.3, 0.05); },
+            shieldRepel: () => { SoundFX.playTone(100, 'sawtooth', 0.3, 0.15); }
+        };
+
+        // 窗口大小调整优化
+        function resizeCanvas() {
+            canvasWidth = window.innerWidth;
+            canvasHeight = window.innerHeight;
+            canvasElement.width = canvasWidth;
+            canvasElement.height = canvasHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas(); // 初始化调用
+
+        function toggleGameMode() {
+            unlockAudio(); // 再次尝试解锁
+
+            isGameMode = !isGameMode;
+            if (isGameMode) {
+                toggleBtn.innerText = "❄️ 返回练习模式";
+                toggleBtn.classList.add('combat');
+                gameStatsElement.style.display = 'block';
+                score = 0;
+                scoreElement.innerText = score;
+                monsters = []; 
+            } else {
+                toggleBtn.innerText = "⚔️ 进入战斗模式";
+                toggleBtn.classList.remove('combat');
+                gameStatsElement.style.display = 'none';
+                monsters = [];
+            }
+        }
+
+        function updateMaxHands(val) {
+            let num = parseInt(val);
+            if (isNaN(num)) num = 4;
+            if (num < 1) num = 1;
+            if (num > 6) num = 6;
+            document.getElementById('max-hands-input').value = num;
+            console.log("Updating max hands to:", num);
+            hands.setOptions({ maxNumHands: num });
+        }
+
+        // --- 游戏对象 (保持原有逻辑) ---
+        let particles = [];
+        let monsters = [];
+
+        class Particle {
+            constructor(x, y, type, angle = 0) {
+                this.x = x;
+                this.y = y;
+                this.type = type; 
+                this.life = 1.0;
+                this.isDead = false;
+                
+                if (type === 'snow') {
+                    this.vx = (Math.random() - 0.5) * 2;
+                    this.vy = Math.random() * 2 + 3;
+                    this.size = Math.random() * 8 + 4;
+                    this.rotation = Math.random() * Math.PI * 2;
+                    this.spin = (Math.random() - 0.5) * 0.1;
+                    this.color = `rgba(220, 240, 255, ${Math.random() * 0.5 + 0.5})`;
+                    this.decay = 0.005;
+                    this.isAttack = true;
+                    this.damage = 0.5;
+                    this.isFreeze = true;
+                } else if (type === 'beam') {
+                    const speed = 25;
+                    this.vx = Math.cos(angle) * speed;
+                    this.vy = Math.sin(angle) * speed;
+                    this.size = 6;
+                    this.decay = 0.02;
+                    this.color = '#a0e0ff';
+                    this.isAttack = true;
+                    this.damage = 35; 
+                    this.isFreeze = false;
+                } else if (type === 'icicle') {
+                    this.x = Math.random() * canvasWidth;
+                    this.y = -50;
+                    this.vx = (Math.random() - 0.5) * 2; 
+                    this.vy = Math.random() * 10 + 15; 
+                    this.size = Math.random() * 5 + 3;
+                    this.decay = 0.01; 
+                    this.color = '#e0f7fa';
+                    this.isAttack = true;
+                    this.damage = 80; 
+                    this.isFreeze = false;
+                } else if (type === 'shield_spark') {
+                    this.vx = (Math.random() - 0.5) * 8; 
+                    this.vy = (Math.random() - 0.5) * 8;
+                    this.size = Math.random() * 4 + 2;
+                    this.decay = 0.1;
+                    this.color = `rgba(100, 255, 255, 0.9)`;
+                    this.isAttack = false;
+                } else if (type === 'sparkle' || type === 'explosion') {
+                    this.vx = (Math.random() - 0.5) * 10;
+                    this.vy = (Math.random() - 0.5) * 10;
+                    this.size = Math.random() * 4;
+                    this.decay = 0.05;
+                    this.color = type === 'explosion' ? '#a0cfff' : `rgba(255, 255, 255, 0.8)`;
+                    this.isAttack = false;
+                }
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= this.decay;
+                if (this.type === 'snow') {
+                    this.x += Math.sin(this.life * 5) * 1; 
+                    this.rotation += this.spin;
+                }
+                if (this.life <= 0 || this.x < -100 || this.x > canvasWidth + 100 || this.y > canvasHeight + 100) {
+                    this.isDead = true;
+                }
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                const alpha = Math.max(0, this.life);
+                
+                if (this.type === 'snow') {
+                    ctx.rotate(this.rotation);
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    const s = this.size;
+                    ctx.moveTo(-s, 0); ctx.lineTo(s, 0);
+                    ctx.moveTo(0, -s); ctx.lineTo(0, s);
+                    ctx.stroke();
+                } else if (this.type === 'beam') {
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = '#00ffff';
+                    ctx.fillStyle = `rgba(200, 255, 255, ${alpha})`;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = `rgba(0, 200, 255, ${alpha * 0.5})`;
+                    ctx.lineWidth = this.size / 2;
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(-this.vx * 3, -this.vy * 3); 
+                    ctx.stroke();
+                } else if (this.type === 'icicle') {
+                    ctx.rotate(Math.atan2(this.vy, this.vx) + Math.PI/2);
+                    ctx.shadowBlur = 5;
+                    ctx.shadowColor = '#ffffff';
+                    ctx.fillStyle = `rgba(220, 255, 255, ${alpha})`;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -this.size * 5);
+                    ctx.lineTo(this.size, this.size);
+                    ctx.lineTo(-this.size, this.size);
+                    ctx.fill();
+                } else {
+                    ctx.fillStyle = this.color.replace(')', `, ${alpha})`).replace('rgb', 'rgba');
+                    if (this.color.startsWith('#')) ctx.globalAlpha = alpha;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        class Monster {
+            constructor() {
+                const side = Math.floor(Math.random() * 4);
+                if (side === 0) { this.x = Math.random() * canvasWidth; this.y = -60; }
+                else if (side === 1) { this.x = canvasWidth + 60; this.y = Math.random() * canvasHeight; }
+                else if (side === 2) { this.x = Math.random() * canvasWidth; this.y = canvasHeight + 60; }
+                else { this.x = -60; this.y = Math.random() * canvasHeight; }
+
+                this.targetX = canvasWidth / 2;
+                this.targetY = canvasHeight / 2;
+                
+                const scale = 0.5 + Math.random(); 
+                this.size = 30 * scale;
+                this.maxHp = 100 * scale; 
+                this.hp = this.maxHp;
+                this.baseSpeed = (2.0 / scale); 
+                this.speed = this.baseSpeed;
+                this.isDead = false;
+                this.wobblePhase = Math.random() * Math.PI * 2;
+                this.freezeTimer = 0;
+            }
+
+            update() {
+                if (this.freezeTimer > 0) {
+                    this.speed = this.baseSpeed * 0.2; 
+                    this.freezeTimer--;
+                } else {
+                    this.speed = this.baseSpeed;
+                }
+                const dx = this.targetX - this.x;
+                const dy = this.targetY - this.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist > 10) {
+                    this.x += (dx / dist) * this.speed;
+                    this.y += (dy / dist) * this.speed;
+                }
+                this.wobblePhase += 0.2;
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                const isFrozen = this.freezeTimer > 0;
+                const shadowColor = isFrozen ? '#00ffff' : '#ff4500';
+                const outerColor = isFrozen ? 'rgba(0, 200, 255, 0.8)' : 'rgba(255, 69, 0, 0.8)';
+                const innerColor = isFrozen ? 'rgba(0, 50, 100, 0.9)' : 'rgba(100, 0, 0, 0.9)';
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = shadowColor;
+                ctx.fillStyle = outerColor;
+                ctx.beginPath();
+                const spikes = 8;
+                for(let i=0; i<spikes*2; i++){
+                    const wobble = Math.sin(this.wobblePhase + i) * (isFrozen ? 2 : 5);
+                    const r = (i % 2 === 0) ? this.size + wobble : (this.size/2) + wobble;
+                    const a = (Math.PI / spikes) * i + (this.wobblePhase * 0.05); 
+                    ctx.lineTo(Math.cos(a)*r, Math.sin(a)*r);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.fillStyle = innerColor;
+                ctx.beginPath();
+                ctx.arc(0, 0, this.size * 0.4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#330000';
+                ctx.fillRect(-20, -this.size - 15, 40, 6);
+                ctx.fillStyle = isFrozen ? '#00ccff' : '#ff3300'; 
+                ctx.fillRect(-20, -this.size - 15, 40 * (Math.max(0, this.hp) / this.maxHp), 6);
+                ctx.restore();
+            }
+        }
+
+        function createExplosion(x, y, isSmall = false) {
+            const count = isSmall ? 5 : 20;
+            for (let i = 0; i < count; i++) {
+                particles.push(new Particle(x, y, 'explosion'));
+            }
+        }
+
+        function updateGame(shieldPositions) {
+            if (isGameMode && Math.random() < 0.015) {
+                monsters.push(new Monster());
+            }
+
+            for (let i = monsters.length - 1; i >= 0; i--) {
+                const m = monsters[i];
+                m.update();
+
+                if (shieldPositions.length > 0 && !m.isDead) {
+                    for (let sPos of shieldPositions) {
+                        const distToShield = Math.hypot(m.x - sPos.x, m.y - sPos.y);
+                        const shieldRadius = 120; 
+
+                        if (distToShield < shieldRadius + m.size) {
+                            const pushAngle = Math.atan2(m.y - sPos.y, m.x - sPos.x);
+                            m.x += Math.cos(pushAngle) * 15;
+                            m.y += Math.sin(pushAngle) * 15;
+                            m.hp -= 2;
+
+                            if (frameCount % 5 === 0) SoundFX.shieldRepel();
+
+                            if (Math.random() < 0.4) {
+                                const contactX = sPos.x + Math.cos(pushAngle) * 80;
+                                const contactY = sPos.y + Math.sin(pushAngle) * 80;
+                                particles.push(new Particle(contactX, contactY, 'shield_spark'));
+                            }
+
+                            if (m.hp <= 0) {
+                                m.isDead = true;
+                                score += Math.floor(m.maxHp / 10);
+                                scoreElement.innerText = score;
+                                SoundFX.hit(); 
+                                createExplosion(m.x, m.y);
+                            }
+                            break; 
+                        }
+                    }
+                }
+
+                if (!m.isDead) {
+                    for (let j = particles.length - 1; j >= 0; j--) {
+                        const p = particles[j];
+                        if (p.isAttack && !p.isDead) {
+                            const dist = Math.hypot(p.x - m.x, p.y - m.y);
+                            if (dist < m.size + 15) {
+                                m.hp -= p.damage;
+                                if (p.isFreeze) {
+                                    m.freezeTimer = 60;
+                                    if(Math.random() < 0.1) SoundFX.freeze();
+                                }
+                                p.isDead = true; 
+                                
+                                if (!p.isFreeze) {
+                                    createExplosion(p.x, p.y);
+                                    SoundFX.hit(); 
+                                } else {
+                                    createExplosion(p.x, p.y, true);
+                                }
+
+                                if (m.hp <= 0) {
+                                    m.isDead = true;
+                                    score += Math.floor(m.maxHp / 10);
+                                    scoreElement.innerText = score;
+                                    createExplosion(m.x, m.y);
+                                    break; 
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (m.isDead) {
+                    monsters.splice(i, 1);
+                } else {
+                    m.draw(canvasCtx);
+                }
+            }
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.update();
+                if (p.isDead) {
+                    particles.splice(i, 1);
+                } else {
+                    p.draw(canvasCtx);
+                }
+            }
+        }
+
+        function drawMagicShield(ctx, x, y) {
+            const time = frameCount * 0.05;
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.beginPath();
+            ctx.arc(0, 0, 70, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(100, 255, 255, 0.5)`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.rotate(time);
+            ctx.beginPath();
+            const r = 60;
+            for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 3) * i;
+                ctx.lineTo(r * Math.cos(angle), r * Math.sin(angle));
+            }
+            ctx.closePath();
+            ctx.strokeStyle = `rgba(200, 255, 255, 0.8)`;
+            ctx.lineWidth = 3;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#00ffff';
+            ctx.stroke();
+            ctx.rotate(-time * 2);
+            ctx.beginPath();
+            const r2 = 40;
+            for (let i = 0; i < 3; i++) {
+                const angle = (Math.PI * 2 / 3) * i;
+                ctx.lineTo(r2 * Math.cos(angle), r2 * Math.sin(angle));
+            }
+            ctx.closePath();
+            ctx.strokeStyle = `rgba(255, 255, 255, 0.6)`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        function detectGesture(landmarks) {
+            const isExtended = (tipIdx, pipIdx) => {
+                const wrist = landmarks[0];
+                const tip = landmarks[tipIdx];
+                const pip = landmarks[pipIdx];
+                const distTip = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+                const distPip = Math.hypot(pip.x - wrist.x, pip.y - wrist.y);
+                return distTip > distPip * 1.1; 
+            };
+            const indexOpen = isExtended(8, 6);
+            const middleOpen = isExtended(12, 10);
+            const ringOpen = isExtended(16, 14);
+            const pinkyOpen = isExtended(20, 18);
+            const thumbOpen = isExtended(4, 2); 
+            const openCount = [indexOpen, middleOpen, ringOpen, pinkyOpen, thumbOpen].filter(Boolean).length;
+
+            if (openCount >= 4) return 'open_palm'; 
+            if (openCount <= 1 && !indexOpen && !middleOpen && !ringOpen && !pinkyOpen) return 'fist'; 
+            if (indexOpen && middleOpen && !ringOpen && !pinkyOpen) return 'victory'; 
+            if (indexOpen && !middleOpen && !ringOpen && !pinkyOpen) return 'pointing'; 
+            return 'other';
+        }
+
+        function onResults(results) {
+            loadingElement.style.display = 'none';
+            frameCount++;
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.fillStyle = isGameMode ? 'rgba(30, 0, 0, 0.4)' : 'rgba(10, 30, 60, 0.4)';
+            canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+
+            let currentFrameShields = []; 
+
+            if (results.multiHandLandmarks) {
+                for (const landmarks of results.multiHandLandmarks) {
+                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS,
+                                   {color: 'rgba(0, 255, 255, 0.4)', lineWidth: 2});
+                    drawLandmarks(canvasCtx, landmarks, 
+                                  {color: 'rgba(255, 255, 255, 0.8)', lineWidth: 1, radius: 2});
+
+                    const gesture = detectGesture(landmarks);
+                    const wrist = landmarks[0];
+                    const indexTip = landmarks[8];
+                    const middleTip = landmarks[12];
+                    const palmCenter = landmarks[9];
+
+                    const toCanvas = (pt) => ({x: pt.x * canvasWidth, y: pt.y * canvasHeight});
+                    const pWrist = toCanvas(wrist);
+                    const pIndex = toCanvas(indexTip);
+                    const pPalm = toCanvas(palmCenter);
+
+                    if (gesture === 'open_palm') {
+                        if (Math.random() < 0.5) { 
+                            [4, 8, 12, 16, 20].forEach(idx => {
+                                const tip = toCanvas(landmarks[idx]);
+                                particles.push(new Particle(tip.x, tip.y, 'snow'));
+                            });
+                        }
+                        drawGlow(pPalm.x, pPalm.y, 60, 'rgba(200, 240, 255, 0.3)');
+                    } else if (gesture === 'pointing') {
+                        const angle = Math.atan2(pIndex.y - pWrist.y, pIndex.x - pWrist.x);
+                        if (frameCount % 4 === 0) { SoundFX.shoot(); }
+                        for(let k=0; k<3; k++) 
+                            particles.push(new Particle(pIndex.x, pIndex.y, 'beam', angle));
+                        drawGlow(pIndex.x, pIndex.y, 30, 'rgba(0, 255, 255, 0.8)');
+                    } else if (gesture === 'victory') {
+                        if (Math.random() < 0.2) { particles.push(new Particle(0, 0, 'icicle')); }
+                        drawGlow(pIndex.x, pIndex.y, 20, 'rgba(200, 100, 255, 0.5)');
+                        const pMiddle = toCanvas(middleTip);
+                        drawGlow(pMiddle.x, pMiddle.y, 20, 'rgba(200, 100, 255, 0.5)');
+                    } else if (gesture === 'fist') {
+                        drawMagicShield(canvasCtx, pPalm.x, pPalm.y);
+                        currentFrameShields.push({x: pPalm.x, y: pPalm.y});
+                        if (Math.random() < 0.3) { particles.push(new Particle(pPalm.x, pPalm.y, 'shield_spark')); }
+                    }
+                }
+            }
+            updateGame(currentFrameShields);
+            canvasCtx.restore();
+        }
+
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+
+        hands.setOptions({
+            maxNumHands: 4, 
+            modelComplexity: 1,
+            minDetectionConfidence: 0.3, 
+            minTrackingConfidence: 0.3   
+        });
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 1280,
+            height: 720
+        });
+        camera.start();
+    </script>
+</body>
+</html>
