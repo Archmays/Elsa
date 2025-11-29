@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Elsa 冰雪魔法模拟器 v3.3 (Mobile & iOS Optimized)</title>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <title>Elsa 冰雪魔法模拟器 v3.4 (iOS Fix)</title>
+    <!-- 移除 camera_utils，改用原生调用以解决 iOS 卡死问题 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
@@ -253,8 +253,8 @@
 <body>
 
     <div id="container">
-        <!-- 关键：添加 playsinline 属性，防止iOS自动全屏 -->
-        <video class="input_video" playsinline webkit-playsinline></video>
+        <!-- 关键修复：添加 muted 和 autoplay，这是 iOS 自动播放的硬性要求 -->
+        <video class="input_video" playsinline webkit-playsinline muted autoplay></video>
         <canvas class="output_canvas"></canvas>
         <div class="vignette"></div>
 
@@ -340,27 +340,19 @@
         // --- 设备检测与 iOS 处理 ---
         function checkIOSAndBrowser() {
             const ua = navigator.userAgent;
-            // 检测 iOS 设备 (iPad, iPhone, iPod) 或者 iPadOS (MacIntel + Touch)
             const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-            
-            // 检测是否为原生 Safari (排除 Chrome/CriOS, Firefox/FxiOS 等)
-            // Chrome on iOS 包含 "CriOS", Safari 包含 "Version/x.x Safari"
             const isSafari = /Version\/[\d\.]+.*Safari/.test(ua) && !/CriOS|FxiOS|OPiOS|Mercurio/.test(ua);
             
             if (isIOS && !isSafari) {
-                // 如果是 iOS 但不是 Safari，显示引导弹窗
                 document.getElementById('ios-guide-modal').style.display = 'flex';
             }
         }
-        
-        // 页面加载时执行检测
         checkIOSAndBrowser();
 
         // --- 音效管理器 ---
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         const audioCtx = new AudioContext();
         
-        // 音频解锁逻辑 (针对 iOS 和 Chrome 自动播放策略)
         function unlockAudio() {
             if (audioCtx.state === 'suspended') {
                 audioCtx.resume().then(() => {
@@ -368,16 +360,13 @@
                 });
             }
         }
-        // 绑定多种交互事件以确保解锁
         document.body.addEventListener('touchstart', unlockAudio, {once:true});
         document.body.addEventListener('click', unlockAudio, {once:true});
 
         const SoundFX = {
             playTone: (freq, type, duration, vol = 0.1) => {
                 if(audioCtx.state === 'suspended') unlockAudio(); 
-                // 安全检查
                 if(audioCtx.state === 'closed') return;
-                
                 try {
                     const osc = audioCtx.createOscillator();
                     const gain = audioCtx.createGain();
@@ -409,7 +398,6 @@
             shieldRepel: () => { SoundFX.playTone(100, 'sawtooth', 0.3, 0.15); }
         };
 
-        // 窗口大小调整优化
         function resizeCanvas() {
             canvasWidth = window.innerWidth;
             canvasHeight = window.innerHeight;
@@ -417,10 +405,10 @@
             canvasElement.height = canvasHeight;
         }
         window.addEventListener('resize', resizeCanvas);
-        resizeCanvas(); // 初始化调用
+        resizeCanvas();
 
         function toggleGameMode() {
-            unlockAudio(); // 再次尝试解锁
+            unlockAudio(); 
 
             isGameMode = !isGameMode;
             if (isGameMode) {
@@ -448,7 +436,7 @@
             hands.setOptions({ maxNumHands: num });
         }
 
-        // --- 游戏对象 (保持原有逻辑) ---
+        // --- 游戏对象 ---
         let particles = [];
         let monsters = [];
 
@@ -868,16 +856,56 @@
             minDetectionConfidence: 0.3, 
             minTrackingConfidence: 0.3   
         });
+        
         hands.onResults(onResults);
 
-        const camera = new Camera(videoElement, {
-            onFrame: async () => {
+        // 关键重构：放弃使用 Camera Utils，改用原生 getUserMedia 手动循环
+        // 这样可以彻底解决 iOS WebKit 视频流暂停/尺寸不匹配导致的卡死问题
+        async function startCamera() {
+            try {
+                // 优先使用后置摄像头（通常没有，会回退到前置），并指定理想分辨率
+                // 注意：移动端不需要太高分辨率，640x480足够，性能更好
+                const constraints = {
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: "user"
+                    }
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoElement.srcObject = stream;
+                
+                // 等待视频元数据加载完成
+                await new Promise((resolve) => {
+                    videoElement.onloadedmetadata = () => {
+                        resolve();
+                    };
+                });
+                
+                // 确保播放
+                await videoElement.play();
+                
+                // 开始每一帧的处理循环
+                requestAnimationFrame(cameraLoop);
+                
+            } catch (err) {
+                console.error("Camera access error:", err);
+                loadingElement.innerHTML = "无法访问摄像头<br>请检查权限设置";
+            }
+        }
+
+        async function cameraLoop() {
+            // 只有当视频处于准备好状态时才发送给 MediaPipe
+            if (videoElement.readyState >= 2) {
                 await hands.send({image: videoElement});
-            },
-            width: 1280,
-            height: 720
-        });
-        camera.start();
+            }
+            requestAnimationFrame(cameraLoop);
+        }
+
+        // 启动摄像头
+        startCamera();
+
     </script>
 </body>
 </html>
